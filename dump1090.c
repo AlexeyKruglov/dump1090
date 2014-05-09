@@ -184,6 +184,9 @@ struct {
     long long stat_http_requests;
     long long stat_sbs_connections;
     long long stat_out_of_phase;
+
+    double clat;
+    double clon;
 } Modes;
 
 /* The struct we use to store information about a decoded message. */
@@ -274,6 +277,7 @@ void modesInitConfig(void) {
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
     Modes.aggressive = 0;
     Modes.interactive_rows = getTermRows();
+    Modes.clat = Modes.clon = NAN;
 }
 
 void modesInit(void) {
@@ -1801,14 +1805,17 @@ void interactiveShowData(void) {
     char progress[4];
     int count = 0;
 
+    double dist, mindist, az;
+    double dx, dy;
+
     memset(progress,' ',3);
     progress[time(NULL)%3] = '.';
     progress[3] = '\0';
 
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
     printf(
-"Hex    Flight   Altitude  Speed   Lat       Lon       Track  Messages Seen %s\n"
-"--------------------------------------------------------------------------------\n",
+"Hex    Flight   Altitude  Speed   Lat       Lon       Track Az   Dist   ImpPar Messages Seen %s\n"
+"--------------------------------------------------------------------------------------------------\n",
         progress);
 
     while(a && count < Modes.interactive_rows) {
@@ -1820,9 +1827,28 @@ void interactiveShowData(void) {
             speed *= 1.852;
         }
 
-        printf("%-6s %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d   %-9ld %d sec\n",
+        if(isnan(Modes.clat)) {
+          dy = a->lat - Modes.clat;
+          dx = (a->lon - Modes.clon) * cos(Modes.clat / 180.0 * M_PI);
+          dist = sqrt(pow(dy, 2) + pow(dx, 2)) * (1.0 / 360.0 * 40e3);
+          if(dist < 1000 && dist > 0 && (a->lat != 0 || a->lon != 0)) {
+            az = atan2(-dx, -dy) * (180. / M_PI) + 180.0;
+            mindist = dist * fabs(sin((az - a->track) * (M_PI/180.0)));
+          } else {
+            az = 0;
+            mindist = 0;
+          }
+          if(a->lat == 0 && a->lon == 0) dist = 0;
+          if(mindist >= 999.9) mindist = 999.9;
+          if(dist >= 999.9) dist = 999.9;
+          else if(cos((az - a->track) * (M_PI/180.0)) <= 0) dist = -dist;
+        } else {
+          dist = mindist = az = NAN;
+        }
+
+        printf("%-6s %-8s %-9d %-7d %-7.03f   %-7.03f   %3d   %3.0f %+6.01f  %5.01f  %-8ld %d sec\n",
             a->hexaddr, a->flight, altitude, speed,
-            a->lat, a->lon, a->track, a->messages,
+            a->lat, a->lon, a->track, az, dist, mindist, a->messages,
             (int)(now - a->seen));
         a = a->next;
         count++;
@@ -2425,6 +2451,7 @@ void showHelp(void) {
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
+"--latlon <num> <num>     Observer coordinates (lat, lon).\n"
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
 "--net-only               Enable just networking, no RTL device or file used.\n"
@@ -2524,6 +2551,9 @@ int main(int argc, char **argv) {
             Modes.interactive_rows = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--interactive-ttl")) {
             Modes.interactive_ttl = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--latlon") && more) {
+            Modes.clat = atof(argv[++j]); /* Lat in deg */
+            Modes.clon = atof(argv[++j]); /* Lon in deg */
         } else if (!strcmp(argv[j],"--debug") && more) {
             char *f = argv[++j];
             while(*f) {
