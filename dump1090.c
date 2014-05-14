@@ -1827,7 +1827,7 @@ void interactiveShowData(void) {
             speed *= 1.852;
         }
 
-        if(isnan(Modes.clat)) {
+        if(!isnan(Modes.clat)) {
           dy = a->lat - Modes.clat;
           dx = (a->lon - Modes.clon) * cos(Modes.clat / 180.0 * M_PI);
           dist = sqrt(pow(dy, 2) + pow(dx, 2)) * (1.0 / 360.0 * 40e3);
